@@ -1,0 +1,228 @@
+---
+title: "RepDataProject1"
+author: "Rob Keefe"
+date: "July 24, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Reproducable research project 1
+
+The purpose of this project is to load raw data from a piece of wearable
+technology, clean this data, and use it to answer certain questions posed in the 
+assignment.
+
+## Loading and processing the data
+
+The raw data is extracted from the github repository and placed as a .csv file
+in the working directory. The following code loads the data into a useable format.
+No pre-processing is required at this stage.
+
+
+```{r load}
+setwd("C:/Users/Rob/Dropbox/R Course/ReprodDataProj1")
+data <- read.csv('activity.csv')
+```
+
+
+## What is mean total number of steps taken per day?
+
+We will use the dplyr library to aggregate the data by day. This aggregated data, 
+stored in the dataframe daily_steps, is used to generate a histogram of the daily step
+counts.
+
+```{r dailysummary}
+suppressMessages(suppressWarnings(library(dplyr)))
+daily_steps <- data %>%
+  group_by(date) %>%
+  summarize(total.steps = sum(steps))
+
+
+hist(daily_steps$total.steps, 
+     breaks= 8,
+     main = "Histogram of steps taken per day",
+     xlab = 'Daily Step Total',
+     ylab = 'Number of days')
+```
+
+We can use this dataframe to obtain the average and median daily
+step counts.
+
+```{r}
+
+mean_daily_steps <- mean(daily_steps$total.steps, na.rm = T)
+mean_daily_steps
+
+meadian_daily_steps <- median(daily_steps$total.steps, na.rm = T)
+meadian_daily_steps
+
+```
+
+## What is the average daily activity pattern?
+
+We use dplyr again to average the step counts by interval across all days.
+This is saved in the dataframe int_steps. This average is plotted against 
+intervals.
+
+```{r}
+int_steps <- data %>%
+  group_by(interval) %>%
+  summarize(avg.steps = mean(steps, na.rm = T))
+
+plot(int_steps$interval,int_steps$avg.steps, 
+     type = 'l',
+     main = 'Average steps taken per interval (all days)',
+     xlab = 'Interval',
+     ylab = 'Average steps recorded')
+```
+
+To obtain the interval containing the max number of steps, we sort the int_steps
+dataframe in decreasing order and look at the first entry.
+
+```{r}
+
+max_steps <- int_steps[order(-int_steps$avg.steps),]
+max_steps[1,]
+
+```
+
+## Imputing missing values
+
+To calculate the number of NA's in the steps column we use the in.na function
+
+```{r}
+sum(is.na(data$steps))
+
+```
+We will use the strategy of replacing the NA's with the average (across all days)
+of the number of steps in that specific interval. Note that this number is contained in
+the int_steps dataframe. 
+
+To do this we will first duplicate our data as data1. Then we will iterate through this 
+dataset. When we find an NA value in the step column we will replace it with the entry in the
+int_steps dataframe matching the interval of the NA value.
+
+```{r}
+data1 <- data
+
+for (i in 1:NROW(data1)) {
+  
+  if (is.na(data1[i,1])) {
+    
+    data1[i,1] <- int_steps[ which(int_steps$interval == data1[i,3]),2]
+  }
+}
+```
+The dataframe data1 now has all the NA's replaced with average values for the intervals in question.
+Using the same method we used previously we can check the mean and median steps and step histogram to see
+what changes have taken place. 
+
+```{r}
+daily_steps1 <- data1 %>%
+  group_by(date) %>%
+  summarize(total.steps = sum(steps))
+
+
+hist(daily_steps1$total.steps, 
+     breaks= 8,
+     main = "Histogram of steps taken per day",
+     xlab = 'Daily Step Total',
+     ylab = 'Number of days')
+
+
+
+mean_daily_steps1 <- mean(daily_steps1$total.steps, na.rm = T)
+mean_daily_steps1
+
+median_daily_steps1 <- median(daily_steps1$total.steps, na.rm = T)
+median_daily_steps1
+```
+
+## Are there differences in activity patterns between weekdays and weekends?
+
+Finally we will analyze the differences in step patterns between weekdays and 
+weekends. To perform this analysis we need to tag certain entries in the step 
+data as occuring on a weekend and the rest on a weekday.
+
+We will use the data with the NA values removed (data1) and add two additional columns:
+dtg - date-formated date, and weekend - weekend/weekday. 
+
+```{r}
+data1$dtg <- as.Date(as.character(data1$date),'%Y-%m-%d')
+data1$dow <- weekdays(data1$dtg)
+data1$weekend <- NA
+
+```
+
+To tag a given day as weekend or weekday we will create a new function is_weekend which
+takes as its argument, a date and returns either "Weekend" of "Weekday"
+
+```{r}
+is_weekend  <- function(dtg) {
+  
+  ### Takes a date and returns either Weekday or Weekend as appropriate
+  dow <- weekdays(dtg)
+
+  result <- "Weekday"
+  if (dow == "Saturday") result <- "Weekend"
+  if (dow == "Sunday") result <- "Weekend"
+  
+  result
+  
+}
+```
+
+Now we can iterate through data1 and tag the days as either weekend or weekday
+
+```{r}
+
+for (i in 1:NROW(data1)) {
+     
+   data1[i,6] <- is_weekend(data1[i,4])
+     
+ 
+ }
+```
+
+Now we create tables with the average steps per interval for either weekend days _we
+or weekdays _wd. We append the correct designation on the $we column of each.
+
+```{r}
+
+int_steps_wd <- subset(data1, weekend == "Weekday") %>%
+  group_by(interval) %>%
+  summarize(avg.steps = mean(steps, na.rm = T))
+
+int_steps_we <- subset(data1, weekend == "Weekend") %>%
+  group_by(interval) %>%
+  summarize(avg.steps = mean(steps, na.rm = T))
+
+int_steps_we$we <- 'Weekend'
+int_steps_wd$we <- 'Weekday'
+```
+Now we combine these two tables into a single dataframe
+
+```{r}
+steps_byday <- rbind(int_steps_wd,int_steps_we)
+```
+
+This dataframe is used to create a plot showing the differences in
+average steps per interval for each day type
+
+```{r}
+library(lattice)
+
+xyplot(avg.steps ~ interval | we, steps_byday,
+       type = 'l',
+       layout = c(1,2),
+       xlab = "Interval",
+       ylab = "Average Steps",
+       main = "Comparison of Average Steps on Weekends vs Weekdays"
+       )
+```
+
+
+
